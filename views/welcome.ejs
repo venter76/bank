@@ -1,0 +1,35 @@
+<%- include('partials/header') %>
+<body>
+<div class="container mt-5">
+  <h1>Welcome to Bray Road Bank (BRB)</h1>
+  <p>Thank you for choosing Bray Road Bank.</p>
+  <p>Please complete the form below:</p>
+
+  <div class="row">
+    <div class="col-sm-8">
+      <div class="card">
+        <div class="card-body">
+          <!-- Makes POST request to /welcome route -->
+          <form action="/welcome" method="POST">
+            <div class="form-group">
+              <label for="firstName">First Name</label>
+              <input type="text" class="form-control" name="firstName">
+            </div>
+            <div class="form-group">
+              <label for="surname">Surname</label>
+              <input type="text" class="form-control" name="surname">
+            </div>
+            <div class="form-group">
+              <label for="dob">Date of Birth</label>
+              <input type="date" id="dob" class="form-control" name="dob">
+            </div>
+
+            <button type="submit" class="btn btn-dark">Submit</button>
+          </form>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+<%- include('partials/footer') %> <!-- Assuming you have a footer partial -->
+</body>
