@@ -14,8 +14,9 @@
           <h1 class="display-3"><%= firstname %>'s Pocket Money</h1>
           <p class="lead">BRB - The best bank in Bray Road</p>
           <hr>
-          <h2> You have <%= (parseFloat(money) + parseFloat(amount)).toFixed(2) %> in your account.</h2>
-
+          <h2> You have R<%= (parseFloat(money) + parseFloat(amount)).toFixed(2) %> in your account.</h2>
+<br>
+<br>
           <a href="/logout" class="btn btn-danger">Logout</a> <!-- Add logout button with Bootstrap styling -->
           <a href="/transact" class="btn btn-primary">Transact</a> <!-- Add transact button with Bootstrap styling -->
         </div>
