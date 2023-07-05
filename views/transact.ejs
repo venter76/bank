@@ -7,30 +7,20 @@
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-9ndCyUaIbzAi2FUVXJi0CjmCapSmO7SnpJef0486qhLnuZ2cdeRhO02iuK6FUUVM" crossorigin="anonymous">
 </head>
 <body>
+    <body>
+        <div class="container mt-5">
+            <h1>Transact</h1>
     
-    <div class="container mt-5">
-        <h1>Transact</h1>
-
-        <div class="row">
-            <div class="col-sm-8">
-                <div class="card">
-                    <div class="card-body">
-                        <form action="/transact" method="POST">
-                            <div class="form-group">
-                                <label for="debit">Debit</label>
-                                <input type="number" class="form-control" name="debit" placeholder="Enter debit amount">
-                            </div>
-                            <div class="form-group">
-                                <label for="credit">Credit</label>
-                                <input type="number" class="form-control" name="credit" placeholder="Enter credit amount">
-                            </div>
-                            <br>
-                            <button type="submit" class="btn btn-primary">Submit</button>
-                        </form>
-                    </div>
-                </div>
-            </div>
+            <ul>
+                <% for(var i=0; i<firstnames.length; i++) {%>
+                    <li><a href="/transact/<%= firstnames[i] %>"><%= firstnames[i] %></a></li>
+                <% } %>
+              </ul>
+              
+            
         </div>
-    </div>
+    
+    
+  
 </body>
 </html>

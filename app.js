@@ -15,6 +15,7 @@ const schedule = require('node-schedule');
 const nodemailer = require('nodemailer');
 const { v4: uuidv4 } = require('uuid');
 const crypto = require('crypto');
+const flash = require('connect-flash');
 
 
 
@@ -55,6 +56,7 @@ app.use(session({
 
 app.use(passport.initialize());
 app.use(passport.session());
+app.use(flash());
 
 const db_username = process.env.DB_USERNAME;
 const db_password = process.env.DB_PASSWORD;
@@ -141,15 +143,16 @@ app.get("/", function(req, res){
   res.render("home");
 });
 
+
 app.get("/login", function(req, res){
   res.render("login", { message: req.query.message });
 });
+
 
 app.get('/register', function(req, res) {
   const errorMessage = req.query.error;
   res.render('register', { message: req.query.message, error: errorMessage });
 });
-
 
 
 
@@ -174,22 +177,11 @@ app.get('/bank', ensureAuthenticated, function(req, res) {
 
       
 
-      res.render('bank', { money: newAmount,  amount: user.amount, firstname: user.firstname});
+      res.render('bank', { money: newAmount,  amount: user.amount, firstname: user.firstname, error: req.flash('error')});
+    
     }
   });
 });
-
-
-// app.get('/bank', ensureAuthenticated, function(req, res) {
-//   User.findById(req.user._id, function(err, user) {
-//     if (err) {
-//       console.log(err);
-//       // Handle the error accordingly
-//     } else {
-//       res.render('bank', { money: user.money });
-//     }
-//   });
-// });
 
 
 
@@ -287,9 +279,30 @@ app.get("/welcome", function(req, res){
 
 
 app.get('/transact', ensureAuthenticated, ensureAdmin, (req, res) => {
-  // Handle the '/transact' route logic for admin users
-res.render("transact");
+  // Query the database to get all users
+  User.find({}, (err, users) => {
+    if (err) {
+      console.log(err);
+      res.status(500).send("Error occurred while fetching users");
+    } else {
+      // Extract the firstnames of the users
+      const firstnames = users.map(user => user.firstname);
+      
+      // Render the transact view with the firstnames
+      res.render('transact', { firstnames });
+    }
+  });
 });
+
+
+app.get('/transact/:firstname', ensureAuthenticated, ensureAdmin, (req, res) => {
+  // The selected firstname is available as req.params.firstname
+  const selectedFirstname = req.params.firstname;
+
+ 
+  res.render('transact2', { firstname: selectedFirstname });
+});
+
 
 
 
@@ -427,6 +440,7 @@ app.get('/reset/:token', function(req, res) {
   });
 });
 
+
 app.post('/reset/:token', function(req, res) {
   User.findOne({ resetPasswordToken: req.params.token, resetPasswordExpires: { $gt: Date.now() } }, function(err, user) {
     if (!user) {
@@ -465,15 +479,15 @@ app.post('/reset/:token', function(req, res) {
 });
 
 
-app.post('/transact', (req, res) => {
-  const { debit, credit } = req.body;
+app.post('/transact2', (req, res) => {
+  const { debit, credit, firstname } = req.body;
 
   // Convert the debit and credit amounts to numbers
   const debitAmount = parseInt(debit) || 0;
   const creditAmount = parseInt(credit) || 0;
 
-  // Find the user by email or any other identifier
-  User.findOne({ email: req.user.email }, (err, user) => {
+  // Find the user by firstname
+  User.findOne({ firstname: firstname }, (err, user) => {
     if (err) {
       // Handle the error
       return res.status(500).send('Internal Server Error');
@@ -499,8 +513,8 @@ app.post('/transact', (req, res) => {
         return res.status(500).send('Internal Server Error');
       }
 
-      // Redirect or render a response accordingly
-      res.redirect('/bank');
+      // If successful, redirect or render as needed
+      res.redirect('/transact'); // or res.render(), depending on your need
     });
   });
 });
@@ -531,48 +545,8 @@ connectDB().then(() => {
 })
 
 
-// These lines are from origional program code copied:
-
-// app.get("/secrets", function(req, res){
-//   User.find({"secret": {$ne: null}}, function(err, foundUsers){
-//     if (err){
-//       console.log(err);
-//     } else {
-//       if (foundUsers) {
-//         res.render("secrets", {usersWithSecrets: foundUsers});
-//       }
-//     }
-//   });
-// });
-
-// app.get("/submit", function(req, res){
-//   if (req.isAuthenticated()){
-//     res.render("submit");
-//   } else {
-//     res.redirect("/login");
-//   }
-// });
 
 
 
-// app.post("/submit", function(req, res){
-//   const submittedSecret = req.body.secret;
-
-// //Once the user is authenticated and their session gets saved, their user details are saved to req.user.
-//   // console.log(req.user.id);
-
-//   User.findById(req.user.id, function(err, foundUser){
-//     if (err) {
-//       console.log(err);
-//     } else {
-//       if (foundUser) {
-//         foundUser.secret = submittedSecret;
-//         foundUser.save(function(){
-//           res.redirect("/bank");
-//         });
-//       }
-//     }
-//   });
-// });
 
 //END

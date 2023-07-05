@@ -5,8 +5,9 @@ function ensureAdmin(req, res, next) {
       return next();
     }
   
-    // Redirect or show an error message if the user is not an admin
-    res.status(403).send('Access denied');
+    req.flash('error', 'Access denied. Only banker Daddy can do this');
+    return res.redirect('/bank');// Redirect or show an error message if the user is not an admin
+   
   }
   
   module.exports = ensureAdmin;
