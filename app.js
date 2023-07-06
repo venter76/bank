@@ -19,6 +19,8 @@ const flash = require('connect-flash');
 
 
 
+
+
 const transporter = nodemailer.createTransport({
   service: 'gmail',
   auth: {
@@ -109,12 +111,17 @@ const userSchema = new mongoose.Schema({
   }
 });
   
+const encryptionKey = crypto.randomBytes(32);
+const iv = crypto.randomBytes(16);
+const algorithm = 'aes-256-cbc';
 
 
 
 
 userSchema.plugin(passportLocalMongoose);
 userSchema.plugin(findOrCreate);
+
+
 
 const User = new mongoose.model("User", userSchema);
 
@@ -177,7 +184,15 @@ app.get('/bank', ensureAuthenticated, function(req, res) {
 
       
 
-      res.render('bank', { money: newAmount,  amount: user.amount, firstname: user.firstname, error: req.flash('error')});
+// Decrypt the 'firstname' value using the existing 'crypto' setup
+const decipher = crypto.createDecipheriv(algorithm, encryptionKey, iv);
+
+
+       // Decrypt the 'firstname' value
+    let decryptedFirstname = decipher.update(user.firstname, 'hex', 'utf8');
+    decryptedFirstname += decipher.final('utf8');
+
+      res.render('bank', { money: newAmount,  amount: user.amount, firstname: decryptedFirstname, error: req.flash('error')});
     
     }
   });
@@ -304,8 +319,6 @@ app.get('/transact/:firstname', ensureAuthenticated, ensureAdmin, (req, res) => 
 });
 
 
-
-
 app.post('/welcome', (req, res) => {
   const { firstName, surname, dob } = req.body;
 
@@ -315,26 +328,80 @@ app.post('/welcome', (req, res) => {
   }
 
   const userId = req.user._id;
-  // const userId = req.session.userId; // Assuming you've stored the user's ID in the session during registration
 
-  console.log(firstName, surname, dob);
+  const dobString = dob.toString();
 
-  User.findByIdAndUpdate(userId, {
-    firstname: firstName,
-    surname: surname,
-    dob: new Date(dob),
-  }, { new: true }, (err, user) => {
-    if (err) {
-      console.error(err);
-      res.status(500).send("An error occurred while updating user information.");
-      return;
+  // Encrypt the 'firstName' value
+  const firstNameCipher = crypto.createCipheriv(algorithm, encryptionKey, iv);
+  let encryptedFirstName = firstNameCipher.update(firstName, 'utf8', 'hex');
+  encryptedFirstName += firstNameCipher.final('hex');
+
+  // Encrypt the 'surname' value
+  const surnameCipher = crypto.createCipheriv(algorithm, encryptionKey, iv);
+  let encryptedSurname = surnameCipher.update(surname, 'utf8', 'hex');
+  encryptedSurname += surnameCipher.final('hex');
+
+   // Encrypt the 'dob' value
+   const dobCipher = crypto.createCipheriv(algorithm, encryptionKey, iv);
+   let encryptedDob = dobCipher.update(dob, 'utf8', 'hex');
+   encryptedDob += dobCipher.final('hex');
+
+   // Decrypt the 'dob' value back into a date
+  const decipher = crypto.createDecipheriv(algorithm, encryptionKey, iv);
+  let decryptedDob = decipher.update(encryptedDob, 'hex', 'utf8');
+  decryptedDob += decipher.final('utf8');
+
+  User.findByIdAndUpdate(
+    userId,
+    {
+      firstname: encryptedFirstName,
+      surname: encryptedSurname,
+      dob: new Date(decryptedDob),
+    },
+    { new: true },
+    (err, user) => {
+      if (err) {
+        console.error(err);
+        res.status(500).send("An error occurred while updating user information.");
+        return;
+      }
+
+      // User information has been updated successfully
+      // Redirect or render the next page here
+      res.redirect('bank');
     }
-
-    // User information has been updated successfully
-    // Redirect or render the next page here
-    res.redirect('bank');
-  });
+  );
 });
+
+// app.post('/welcome', (req, res) => {
+//   const { firstName, surname, dob } = req.body;
+
+//   if (!req.user) {
+//     res.status(400).send("You must be logged in to access this route.");
+//     return;
+//   }
+
+//   const userId = req.user._id;
+//   // const userId = req.session.userId; // Assuming you've stored the user's ID in the session during registration
+
+//   console.log(firstName, surname, dob);
+
+//   User.findByIdAndUpdate(userId, {
+//     firstname: firstName,
+//     surname: surname,
+//     dob: new Date(dob),
+//   }, { new: true }, (err, user) => {
+//     if (err) {
+//       console.error(err);
+//       res.status(500).send("An error occurred while updating user information.");
+//       return;
+//     }
+
+//     // User information has been updated successfully
+//     // Redirect or render the next page here
+//     res.redirect('bank');
+//   });
+// });
 
 
 
