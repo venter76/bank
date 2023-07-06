@@ -47,7 +47,7 @@ app.use(bodyParser.urlencoded({
 }));
 
 app.use(session({
-  secret: "Our little secret.",
+  secret: process.env.SESSION_SECRET,
   resave: false,
   saveUninitialized: false,
   cookie: { maxAge: 3600000 } // Set session expiration time
@@ -105,7 +105,7 @@ const userSchema = new mongoose.Schema({
   },
   role: {
     type: String,
-    default: "user" // Set the default value as "user"
+    default: "user" 
   }
 });
   
