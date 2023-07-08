@@ -230,7 +230,7 @@ app.post('/register', function(req, res) {
 
         } else {
           // Send verification email
-          const verificationLink = `http://localhost:3000/verify?token=${verificationToken}`;
+          const verificationLink = `https://brayroadbank.cyclic.app/verify?token=${verificationToken}`;
           const email = {
             from: 'brayroadapps@gmail.com',
             to: user.username,
