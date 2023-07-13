@@ -16,7 +16,7 @@ const nodemailer = require('nodemailer');
 const { v4: uuidv4 } = require('uuid');
 const crypto = require('crypto');
 const flash = require('connect-flash');
-
+const MongoStore = require('connect-mongo');
 
 
 
@@ -24,8 +24,8 @@ const flash = require('connect-flash');
 const transporter = nodemailer.createTransport({
   service: 'gmail',
   auth: {
-    user: 'brayroadapps@gmail.com',
-    pass: 'xhomzodsrwkwetll'
+    user: process.env.EMAIL,
+    pass: process.env.EMAIL_PASSWORD
   }
 });
 
@@ -48,17 +48,7 @@ app.use(bodyParser.urlencoded({
   extended: true
 }));
 
-app.use(session({
-  secret: process.env.SESSION_SECRET,
-  resave: false,
-  saveUninitialized: false,
-  cookie: { maxAge: 3600000 } // Set session expiration time
 
-}));
-
-app.use(passport.initialize());
-app.use(passport.session());
-app.use(flash());
 
 const db_username = process.env.DB_USERNAME;
 const db_password = process.env.DB_PASSWORD;
@@ -110,10 +100,6 @@ const userSchema = new mongoose.Schema({
     default: "user" 
   }
 });
-  
-const encryptionKey = crypto.randomBytes(32);
-const iv = crypto.randomBytes(16);
-const algorithm = 'aes-256-cbc';
 
 
 
@@ -121,11 +107,38 @@ const algorithm = 'aes-256-cbc';
 userSchema.plugin(passportLocalMongoose);
 userSchema.plugin(findOrCreate);
 
-
-
 const User = new mongoose.model("User", userSchema);
 
 module.exports = User;
+
+
+
+//Session cookie setup:
+
+app.set('trust proxy', 1);
+
+app.use(session({
+  secret: process.env.SESSION_SECRET,
+  resave: false,
+  saveUninitialized: false,
+  store: MongoStore.create({ 
+    mongoUrl: `mongodb+srv://${db_username}:${db_password}@${db_cluster_url}/${db_name}?retryWrites=true&w=majority`,
+    }),
+  cookie: { 
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
+    httpOnly: true, // prevents JavaScript from making changes
+    maxAge: 24 * 60 * 60 * 1000 // 24 hours
+  }
+}));
+
+
+
+
+
+app.use(passport.initialize());
+app.use(passport.session());
+app.use(flash());
 
 passport.use(User.createStrategy());
 
@@ -138,6 +151,42 @@ passport.deserializeUser(function(id, done) {
     done(err, user);
   });
 });
+
+
+
+// Middleware to log the user object (just for debugging purposes):
+
+// app.use((req, res, next) => {
+//   console.log(req.user);
+//   next();
+// });
+
+
+
+// These lines are to encrypt data in database (NOT login data or password):
+  
+const algorithm = process.env.ALGORITHM;
+
+
+let encryptionKey;
+let iv;
+
+if (!process.env.ENCRYPTION_KEY || !process.env.IV) {
+  encryptionKey = crypto.randomBytes(32).toString('hex');
+  iv = crypto.randomBytes(16).toString('hex');
+
+  // Log the values, so you can manually set them as environment variables later
+  // console.log('ENCRYPTION_KEY:', encryptionKey);
+  // console.log('IV:', iv);
+
+  
+} else {
+  encryptionKey = Buffer.from(process.env.ENCRYPTION_KEY, 'hex');
+  iv = Buffer.from(process.env.IV, 'hex');
+}
+
+
+
 
 
 
@@ -230,7 +279,9 @@ app.post('/register', function(req, res) {
 
         } else {
           // Send verification email
-          const verificationLink = `https://brayroadbank.cyclic.app/verify?token=${verificationToken}`;
+          const verificationLink = `${process.env.APP_URL}/verify?token=${verificationToken}`;
+
+          // const verificationLink = `http://localhost:3000/verify?token=${verificationToken}`;
           const email = {
             from: 'brayroadapps@gmail.com',
             to: user.username,
@@ -243,7 +294,7 @@ app.post('/register', function(req, res) {
             if (error) {
               console.log(error);
             } else {
-              console.log('Verification email sent to: ' + user.username);
+              console.log('Verification email sent');
               res.redirect('/register?message=verification'); // Redirect with success message
             }
             });
@@ -278,7 +329,7 @@ app.get('/verify', function(req, res) {
         if (err) {
           console.log(err);
         } else {
-          console.log('Email verified for user: ' + user.username);
+          console.log('Email verified for user');
         }
         res.redirect('/login');
       });
@@ -320,6 +371,10 @@ app.get('/transact/:firstname', ensureAuthenticated, ensureAdmin, (req, res) => 
 
 
 app.post('/welcome', (req, res) => {
+  // Log req.session and req.user
+  // console.log('req.session:', req.session);
+  // console.log('req.user:', req.user);
+
   const { firstName, surname, dob } = req.body;
 
   if (!req.user) {
@@ -341,12 +396,12 @@ app.post('/welcome', (req, res) => {
   let encryptedSurname = surnameCipher.update(surname, 'utf8', 'hex');
   encryptedSurname += surnameCipher.final('hex');
 
-   // Encrypt the 'dob' value
-   const dobCipher = crypto.createCipheriv(algorithm, encryptionKey, iv);
-   let encryptedDob = dobCipher.update(dob, 'utf8', 'hex');
-   encryptedDob += dobCipher.final('hex');
+  // Encrypt the 'dob' value
+  const dobCipher = crypto.createCipheriv(algorithm, encryptionKey, iv);
+  let encryptedDob = dobCipher.update(dob, 'utf8', 'hex');
+  encryptedDob += dobCipher.final('hex');
 
-   // Decrypt the 'dob' value back into a date
+  // Decrypt the 'dob' value back into a date
   const decipher = crypto.createDecipheriv(algorithm, encryptionKey, iv);
   let decryptedDob = decipher.update(encryptedDob, 'hex', 'utf8');
   decryptedDob += decipher.final('utf8');
@@ -372,36 +427,6 @@ app.post('/welcome', (req, res) => {
     }
   );
 });
-
-// app.post('/welcome', (req, res) => {
-//   const { firstName, surname, dob } = req.body;
-
-//   if (!req.user) {
-//     res.status(400).send("You must be logged in to access this route.");
-//     return;
-//   }
-
-//   const userId = req.user._id;
-//   // const userId = req.session.userId; // Assuming you've stored the user's ID in the session during registration
-
-//   console.log(firstName, surname, dob);
-
-//   User.findByIdAndUpdate(userId, {
-//     firstname: firstName,
-//     surname: surname,
-//     dob: new Date(dob),
-//   }, { new: true }, (err, user) => {
-//     if (err) {
-//       console.error(err);
-//       res.status(500).send("An error occurred while updating user information.");
-//       return;
-//     }
-
-//     // User information has been updated successfully
-//     // Redirect or render the next page here
-//     res.redirect('bank');
-//   });
-// });
 
 
 
@@ -511,7 +536,7 @@ app.get('/reset/:token', function(req, res) {
 app.post('/reset/:token', function(req, res) {
   User.findOne({ resetPasswordToken: req.params.token, resetPasswordExpires: { $gt: Date.now() } }, function(err, user) {
     if (!user) {
-      console.log('Password reset token is iiinvalid or has expired.');
+      console.log('Password reset token is invalid or has expired.');
       return res.redirect('/forgotpassword?message=Password%20reset%20token%20is%20invalid%20or%20has%20expired');
     }
 
@@ -569,9 +594,9 @@ app.post('/transact2', (req, res) => {
     user.amount = user.amount + debitAmount - creditAmount;
 
     // Console log the amount, debit, and credit amounts
-    console.log('Amount:', user.amount);
-    console.log('Debit:', debitAmount);
-    console.log('Credit:', creditAmount);
+    // console.log('Amount:', user.amount);
+    // console.log('Debit:', debitAmount);
+    // console.log('Credit:', creditAmount);
 
     // Save the updated user object
     user.save((err) => {
