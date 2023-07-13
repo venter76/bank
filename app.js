@@ -620,9 +620,16 @@ app.get('/logout', ensureAuthenticated, function(req, res) {
       console.log(err);
       // Handle the error accordingly
     } else {
-     
+     // Decrypt the 'firstname' value using the existing 'crypto' setup
+          const decipher = crypto.createDecipheriv(algorithm, encryptionKey, iv);
 
-      res.render('logout', { firstname: user.firstname});
+
+      // Decrypt the 'firstname' value
+        let decryptedFirstname = decipher.update(user.firstname, 'hex', 'utf8');
+        decryptedFirstname += decipher.final('utf8');
+
+
+      res.render('logout', { firstname: decryptedFirstname});
     }
   });
 });
