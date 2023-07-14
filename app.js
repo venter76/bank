@@ -223,7 +223,11 @@ app.post("/login", function(req, res, next) {
     if (!user) {
       // Authentication failed, redirect back to the login page
       return res.redirect("/login?message=Incorrect%20username%20or%20password");
-      // return res.redirect("/login");
+    }
+
+    if (user.verificationToken !== null) {
+      console.log("No user found");
+      return res.redirect("/login?message=Email%20not%20verified");
     }
 
     req.login(user, function(err) {
@@ -232,16 +236,20 @@ app.post("/login", function(req, res, next) {
         return next(err); // Pass the error to the next middleware
       }
 
- // If it's the user's first login (indicated by no firstname), redirect to the welcome page.
- if (!user.firstname) {
-  return res.redirect("/welcome");
-}
+      // If it's the user's first login (indicated by no firstname), redirect to the welcome page.
+      if (!user.firstname) {
+        return res.redirect("/welcome");
+      }
 
-   // If it's not the user's first login, redirect to their main page.
-   return res.redirect("/bank");
-  });   
+      // If it's not the user's first login, redirect to their main page.
+      return res.redirect("/bank");
+    });   
   })(req, res, next);
 });
+
+
+
+
 
 
 app.get("/welcome", function(req, res){
