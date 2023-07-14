@@ -11,11 +11,24 @@
         <div class="container mt-5">
             <h1>Transact</h1>
     
+
             <ul>
+                <% for(var i=0; i<firstnames.length; i++) {%>
+                  <li>
+                    <a href="/transact/<%= firstnames[i] %>">
+                      <%= firstnames[i] %>
+                
+                  </li>
+                <% } %>
+              </ul>
+              
+
+
+            <!-- <ul>
                 <% for(var i=0; i<firstnames.length; i++) {%>
                     <li><a href="/transact/<%= firstnames[i] %>"><%= firstnames[i] %></a></li>
                 <% } %>
-              </ul>
+              </ul> -->
               
             
         </div>

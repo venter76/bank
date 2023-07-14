@@ -20,6 +20,8 @@ const MongoStore = require('connect-mongo');
 
 
 
+//Nodemailer setup for email verification:
+
 
 const transporter = nodemailer.createTransport({
   service: 'gmail',
@@ -47,6 +49,11 @@ app.set('view engine', 'ejs');
 app.use(bodyParser.urlencoded({
   extended: true
 }));
+
+
+
+
+//MongoDB setup:
 
 
 
@@ -98,7 +105,8 @@ const userSchema = new mongoose.Schema({
   role: {
     type: String,
     default: "user" 
-  }
+  },
+  newamount: Number
 });
 
 
@@ -163,7 +171,7 @@ passport.deserializeUser(function(id, done) {
 
 
 
-// These lines are to encrypt data in database (NOT login data or password):
+// These lines are to encrypt personal data in database (NOT login data or password):
   
 const algorithm = process.env.ALGORITHM;
 
@@ -185,12 +193,12 @@ if (!process.env.ENCRYPTION_KEY || !process.env.IV) {
   iv = Buffer.from(process.env.IV, 'hex');
 }
 
+//End of encryption code.
 
 
 
 
-
-//Routes code:
+//Authentication Routes code:
 
 
 
@@ -205,168 +213,39 @@ app.get("/login", function(req, res){
 });
 
 
-app.get('/register', function(req, res) {
-  const errorMessage = req.query.error;
-  res.render('register', { message: req.query.message, error: errorMessage });
-});
-
-
-
-app.get('/bank', ensureAuthenticated, function(req, res) {
-  User.findById(req.user._id, function(err, user) {
+app.post("/login", function(req, res, next) {
+  passport.authenticate("local", function(err, user, info) {
     if (err) {
       console.log(err);
-      // Handle the error accordingly
-    } else {
-      // Get the current date
-      const now = new Date();
-
-      // Calculate the difference in milliseconds
-      const diffMs = now - user.date;
-
-      // Convert to hours
-      const diffHrs = diffMs / (1000 * 60 * 60);
-
-      // Calculate the new amount
-      // Calculate the new amount
-      const newAmount = (user.money + (0.6 * diffHrs)).toFixed(2);
-
-      
-
-// Decrypt the 'firstname' value using the existing 'crypto' setup
-const decipher = crypto.createDecipheriv(algorithm, encryptionKey, iv);
-
-
-       // Decrypt the 'firstname' value
-    let decryptedFirstname = decipher.update(user.firstname, 'hex', 'utf8');
-    decryptedFirstname += decipher.final('utf8');
-
-      res.render('bank', { money: newAmount,  amount: user.amount, firstname: decryptedFirstname, error: req.flash('error')});
-    
+      return next(err); // Pass the error to the next middleware
     }
-  });
-});
 
-
-
-app.post('/register', function(req, res) {
-
-  // Check if passwords match
-  if (req.body.password !== req.body.passwordConfirm) {
-    // Handle error: passwords do not match
-    console.log('Passwords do not match');
-    res.redirect('/register');
-
-  } else {
-  User.register({ username: req.body.username, active: false }, req.body.password, function(err, user) {
-    if (err) {
-      console.log(err);
-       // Check if error is because user already exists
-       if (err.name === 'UserExistsError') {
-        return res.redirect('/register?error=User%20already%20exists');
-      }
-      return res.redirect('/home');
-    
-    
-
-    } else {
-      // Generate a verification token
-      const verificationToken = uuidv4();
-      user.verificationToken = verificationToken;
-      user.save(function(err) {
-        if (err) {
-          console.log(err);
-
-        } else {
-          // Send verification email
-          const verificationLink = `${process.env.APP_URL}/verify?token=${verificationToken}`;
-
-          // const verificationLink = `http://localhost:3000/verify?token=${verificationToken}`;
-          const email = {
-            from: 'brayroadapps@gmail.com',
-            to: user.username,
-            subject: 'Email Verification',
-            text: `Please click the following link to verify your email address: ${verificationLink}`,
-          };
-
-          
-          transporter.sendMail(email, function(error, success) {
-            if (error) {
-              console.log(error);
-            } else {
-              console.log('Verification email sent');
-              res.redirect('/register?message=verification'); // Redirect with success message
-            }
-            });
-          }
-          
-        });
-      }
-    });
-  }
-});
-
-
-
-app.get('/verify', function(req, res) {
-  const verificationToken = req.query.token;
-  
-  // Find the user with the matching verification token
-  User.findOne({ verificationToken: verificationToken }, function(err, user) {
-    if (err) {
-      console.log(err);
-      res.send('Unauthorized login');
-      res.redirect('/');
-    } else if (!user) {
-      // Invalid or expired token
-      res.send('Unauthorized login');
-      res.redirect('/');
-    } else {
-      // Update the user's verification status
-      user.active = true;
-      user.verificationToken = null; // Clear the verification token
-      user.save(function(err) {
-        if (err) {
-          console.log(err);
-        } else {
-          console.log('Email verified for user');
-        }
-        res.redirect('/login');
-      });
+    if (!user) {
+      // Authentication failed, redirect back to the login page
+      return res.redirect("/login?message=Incorrect%20username%20or%20password");
+      // return res.redirect("/login");
     }
-  });
+
+    req.login(user, function(err) {
+      if (err) {
+        console.log(err);
+        return next(err); // Pass the error to the next middleware
+      }
+
+ // If it's the user's first login (indicated by no firstname), redirect to the welcome page.
+ if (!user.firstname) {
+  return res.redirect("/welcome");
+}
+
+   // If it's not the user's first login, redirect to their main page.
+   return res.redirect("/bank");
+  });   
+  })(req, res, next);
 });
 
 
 app.get("/welcome", function(req, res){
   res.render("welcome");
-});
-
-
-
-app.get('/transact', ensureAuthenticated, ensureAdmin, (req, res) => {
-  // Query the database to get all users
-  User.find({}, (err, users) => {
-    if (err) {
-      console.log(err);
-      res.status(500).send("Error occurred while fetching users");
-    } else {
-      // Extract the firstnames of the users
-      const firstnames = users.map(user => user.firstname);
-      
-      // Render the transact view with the firstnames
-      res.render('transact', { firstnames });
-    }
-  });
-});
-
-
-app.get('/transact/:firstname', ensureAuthenticated, ensureAdmin, (req, res) => {
-  // The selected firstname is available as req.params.firstname
-  const selectedFirstname = req.params.firstname;
-
- 
-  res.render('transact2', { firstname: selectedFirstname });
 });
 
 
@@ -429,35 +308,97 @@ app.post('/welcome', (req, res) => {
 });
 
 
+app.get('/register', function(req, res) {
+  const errorMessage = req.query.error;
+  res.render('register', { message: req.query.message, error: errorMessage });
+});
 
-app.post("/login", function(req, res, next) {
-  passport.authenticate("local", function(err, user, info) {
+
+app.post('/register', function(req, res) {
+
+  // Check if passwords match
+  if (req.body.password !== req.body.passwordConfirm) {
+    // Handle error: passwords do not match
+    console.log('Passwords do not match');
+    res.redirect('/register');
+
+  } else {
+  User.register({ username: req.body.username, active: false }, req.body.password, function(err, user) {
     if (err) {
       console.log(err);
-      return next(err); // Pass the error to the next middleware
-    }
-
-    if (!user) {
-      // Authentication failed, redirect back to the login page
-      return res.redirect("/login?message=Incorrect%20username%20or%20password");
-      // return res.redirect("/login");
-    }
-
-    req.login(user, function(err) {
-      if (err) {
-        console.log(err);
-        return next(err); // Pass the error to the next middleware
+       // Check if error is because user already exists
+       if (err.name === 'UserExistsError') {
+        return res.redirect('/register?error=User%20already%20exists.%20Select%20Login.');
       }
+      return res.redirect('/home');
+    
+    
 
- // If it's the user's first login (indicated by no firstname), redirect to the welcome page.
- if (!user.firstname) {
-  return res.redirect("/welcome");
-}
+    } else {
+      // Generate a verification token
+      const verificationToken = uuidv4();
+      user.verificationToken = verificationToken;
+      user.save(function(err) {
+        if (err) {
+          console.log(err);
 
-   // If it's not the user's first login, redirect to their main page.
-   return res.redirect("/bank");
-  });   
-  })(req, res, next);
+        } else {
+          // Send verification email
+          const verificationLink = `${process.env.APP_URL}/verify?token=${verificationToken}`;
+
+          // const verificationLink = `http://localhost:3000/verify?token=${verificationToken}`;
+          const email = {
+            from: 'brayroadapps@gmail.com',
+            to: user.username,
+            subject: 'Email Verification',
+            text: `Please click the following link to verify your email address: ${verificationLink}`,
+          };
+
+          
+          transporter.sendMail(email, function(error, success) {
+            if (error) {
+              console.log(error);
+            } else {
+              console.log('Verification email sent');
+              res.redirect('/register?message=verification'); // Redirect with success message
+            }
+            });
+          }
+          
+        });
+      }
+    });
+  }
+});
+
+
+app.get('/verify', function(req, res) {
+  const verificationToken = req.query.token;
+  
+  // Find the user with the matching verification token
+  User.findOne({ verificationToken: verificationToken }, function(err, user) {
+    if (err) {
+      console.log(err);
+      res.send('Unauthorized login');
+      res.redirect('/');
+    } else if (!user) {
+      // Invalid or expired token
+      res.send('Unauthorized login');
+      res.redirect('/');
+    } else {
+      // Update the user's verification status
+      user.active = true;
+      user.verificationToken = null; // Clear the verification token
+      user.save(function(err) {
+        if (err) {
+          console.log(err);
+        } else {
+          console.log('Email verified for user');
+        }
+        res.redirect('/login');
+      });
+    }
+  });
 });
 
 
@@ -571,15 +512,121 @@ app.post('/reset/:token', function(req, res) {
 });
 
 
-app.post('/transact2', (req, res) => {
+
+
+//Banking routes code:
+
+
+app.get('/bank', ensureAuthenticated, function(req, res) {
+  User.findById(req.user._id, function(err, user) {
+    if (err) {
+      console.log(err);
+      // Handle the error accordingly
+    } else {
+      // Get the current date
+      const now = new Date();
+
+      // Calculate the difference in milliseconds
+      const diffMs = now - user.date;
+
+      // Convert to hours
+      const diffHrs = diffMs / (1000 * 60 * 60);
+
+      // Calculate the new amount
+      // Calculate the new amount
+      const newAmount = (user.money + (0.6 * diffHrs)).toFixed(2);
+      
+      // Update newamount field in user document
+User.findByIdAndUpdate(req.user._id, { newamount: newAmount }, function(err, user) {
+  if (err) {
+    console.log(err);
+    // Handle the error accordingly
+  } else {
+    // Success, do nothing
+    console.log('User newamount updated successfully');
+
+ 
+  }
+});
+
+
+      
+
+// Decrypt the 'firstname' value using the existing 'crypto' setup
+const decipher = crypto.createDecipheriv(algorithm, encryptionKey, iv);
+
+
+       // Decrypt the 'firstname' value
+    let decryptedFirstname = decipher.update(user.firstname, 'hex', 'utf8');
+    decryptedFirstname += decipher.final('utf8');
+
+      res.render('bank', { money: newAmount,  amount: user.amount, firstname: decryptedFirstname, error: req.flash('error')});
+    
+    }
+  });
+});
+
+
+
+app.get('/transact', ensureAuthenticated, ensureAdmin, function(req, res)  {
+
+// Decrypt function
+function decrypt(text){
+  let decipher = crypto.createDecipheriv('aes-256-cbc', Buffer.from(process.env.ENCRYPTION_KEY, 'hex'), Buffer.from(process.env.IV, 'hex'));
+  let decrypted = decipher.update(text, 'hex', 'utf8');
+  decrypted += decipher.final('utf8');
+  return decrypted;
+}
+
+
+  // Query the database to get all users
+  User.find({}, (err, users) => {
+    if (err) {
+      console.log(err);
+      res.status(500).send("Error occurred while fetching users");
+    } else {
+      // Extract the firstnames of the users
+      const firstnames = users.map(user => decrypt(user.firstname));
+      const newamounts = users.map(user => user.newamount);
+      
+      // Render the transact view with the firstnames
+      res.render('transact', { firstnames, newamounts });
+
+    }
+  });
+});
+
+
+app.get('/transact/:firstname', ensureAuthenticated, ensureAdmin, (req, res) => {
+  // The selected firstname is available as req.params.firstname
+  const selectedFirstname = req.params.firstname;
+  console.log(selectedFirstname);
+
+ 
+  res.render('transact2', { firstname: selectedFirstname });
+});
+
+
+app.post('/transact2', ensureAuthenticated, ensureAdmin, (req, res) => {
   const { debit, credit, firstname } = req.body;
+  console.log(firstname);
+
+  // Encrypt the firstname
+  const firstname2Cipher = crypto.createCipheriv(algorithm, encryptionKey, iv);
+  let encrypteddFirstname = firstname2Cipher.update(firstname, 'utf8', 'hex');
+  encrypteddFirstname += firstname2Cipher.final('hex');
+
+  
+
+
+  console.log(encrypteddFirstname);
 
   // Convert the debit and credit amounts to numbers
   const debitAmount = parseInt(debit) || 0;
   const creditAmount = parseInt(credit) || 0;
 
   // Find the user by firstname
-  User.findOne({ firstname: firstname }, (err, user) => {
+  User.findOne({ firstname: encrypteddFirstname }, (err, user) => {
     if (err) {
       // Handle the error
       return res.status(500).send('Internal Server Error');
@@ -590,25 +637,20 @@ app.post('/transact2', (req, res) => {
       return res.status(404).send('User not found');
     }
 
-    // Update the amount based on the debit and credit amounts
-    user.amount = user.amount + debitAmount - creditAmount;
+     // Update the amount based on the debit and credit amounts
+     user.amount = user.amount + debitAmount - creditAmount;
 
-    // Console log the amount, debit, and credit amounts
-    // console.log('Amount:', user.amount);
-    // console.log('Debit:', debitAmount);
-    // console.log('Credit:', creditAmount);
+   // Save the updated user object
+   user.save((err) => {
+    if (err) {
+      // Handle the error
+      return res.status(500).send('Internal Server Error');
+    }
 
-    // Save the updated user object
-    user.save((err) => {
-      if (err) {
-        // Handle the error
-        return res.status(500).send('Internal Server Error');
-      }
-
-      // If successful, redirect or render as needed
-      res.redirect('/transact'); // or res.render(), depending on your need
-    });
+    // If successful, redirect or render as needed
+    res.redirect('/logout'); // or res.render(), depending on your need
   });
+});
 });
 
 

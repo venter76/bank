@@ -19,6 +19,7 @@
                 <div class="card">
                     <div class="card-body">
                         <form action="/transact2" method="POST">
+                            <input type="hidden" name="firstname" value="<%= firstname %>">
                             <div class="form-group">
                                 <label for="debit">Debit</label>
                                 <input type="number" class="form-control" name="debit" placeholder="Enter debit amount">
@@ -28,7 +29,7 @@
                                 <input type="number" class="form-control" name="credit" placeholder="Enter credit amount">
                             </div>
                             <br>
-                            <input type="hidden" name="firstname" value="<%= firstname %>">
+                            
                             <button type="submit" class="btn btn-primary">Submit</button>
                         </form>
                     </div>
