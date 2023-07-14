@@ -346,7 +346,7 @@ app.post('/register', function(req, res) {
           // Send verification email
           const verificationLink = `${process.env.APP_URL}/verify?token=${verificationToken}`;
 
-         
+        
           const email = {
             from: 'brayroadapps@gmail.com',
             to: user.username,
@@ -585,6 +585,11 @@ function decrypt(text){
       console.log(err);
       res.status(500).send("Error occurred while fetching users");
     } else {
+
+       // Filter out users without a firstname
+    const usersWithFirstnames = users.filter(user => user.firstname);
+
+
       // Extract the firstnames of the users
       const firstnames = users.map(user => decrypt(user.firstname));
       const newamounts = users.map(user => user.newamount);
