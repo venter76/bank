@@ -346,7 +346,7 @@ app.post('/register', function(req, res) {
           // Send verification email
           const verificationLink = `${process.env.APP_URL}/verify?token=${verificationToken}`;
 
-          // const verificationLink = `http://localhost:3000/verify?token=${verificationToken}`;
+         
           const email = {
             from: 'brayroadapps@gmail.com',
             to: user.username,
