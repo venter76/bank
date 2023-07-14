@@ -590,9 +590,12 @@ function decrypt(text){
     const usersWithFirstnames = users.filter(user => user.firstname);
 
 
-      // Extract the firstnames of the users
-      const firstnames = users.map(user => decrypt(user.firstname));
-      const newamounts = users.map(user => user.newamount);
+    
+// Decrypt the firstnames
+const firstnames = usersWithFirstnames.map(user => decrypt(user.firstname));
+const newamounts = usersWithFirstnames.map(user => user.newamount);
+
+      
       
       // Render the transact view with the firstnames
       res.render('transact', { firstnames, newamounts });
