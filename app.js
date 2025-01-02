@@ -1,5 +1,5 @@
 
-require('dotenv').config();
+require('dotenv').config(); ggggg
 const express = require("express");
 const bodyParser = require("body-parser");
 const ensureAuthenticated = require('./authMiddleware'); 
@@ -198,6 +198,7 @@ if (!process.env.ENCRYPTION_KEY || !process.env.IV) {
 
 
 
+
 //Authentication Routes code:
 
 
@@ -242,7 +243,7 @@ app.post("/login", function(req, res, next) {
       }
 
       // If it's not the user's first login, redirect to their main page.
-      return res.redirect("/bank");
+      return res.redirect("/home2");
     });   
   })(req, res, next);
 });
@@ -322,60 +323,63 @@ app.get('/register', function(req, res) {
 });
 
 
-app.post('/register', function(req, res) {
+app.post('/register', async function(req, res) {
 
   // Check if passwords match
   if (req.body.password !== req.body.passwordConfirm) {
     // Handle error: passwords do not match
     console.log('Passwords do not match');
-    res.redirect('/register');
+    return res.redirect('/register'); // Use 'return' to exit the function immediately
+  }
 
-  } else {
-  User.register({ username: req.body.username, active: false }, req.body.password, function(err, user) {
-    if (err) {
-      console.log(err);
-       // Check if error is because user already exists
-       if (err.name === 'UserExistsError') {
-        return res.redirect('/register?error=User%20already%20exists.%20Select%20Login.');
-      }
-      return res.redirect('/home');
-    
-    
+  try {
+    const user = await User.register({ username: req.body.username, active: false }, req.body.password);
 
-    } else {
-      // Generate a verification token
-      const verificationToken = uuidv4();
-      user.verificationToken = verificationToken;
-      user.save(function(err) {
-        if (err) {
-          console.log(err);
+// 2. After user registration:
+console.log("User registered:", user);
 
-        } else {
-          // Send verification email
-          const verificationLink = `${process.env.APP_URL}/verify?token=${verificationToken}`;
 
-        
-          const email = {
-            from: 'brayroadapps@gmail.com',
-            to: user.username,
-            subject: 'Email Verification',
-            text: `Please click the following link to verify your email address: ${verificationLink}`,
-          };
+    // Generate a verification token
+    const verificationToken = uuidv4();
+    user.verificationToken = verificationToken;
 
-          
-          transporter.sendMail(email, function(error, success) {
-            if (error) {
-              console.log(error);
-            } else {
-              console.log('Verification email sent');
-              res.redirect('/register?message=verification'); // Redirect with success message
-            }
-            });
-          }
-          
-        });
-      }
-    });
+// 3. Before saving user with token:
+console.log("User with verification token:", user);
+
+    await user.save();
+
+    // 4. After user has been saved:
+    console.log("User saved to DB:", user);
+
+    // Send verification email
+    const verificationLink = `${process.env.APP_URL}/verify?token=${verificationToken}`;
+
+    const email = {
+      from: 'brayroadapps@gmail.com',
+      to: user.username,
+      subject: 'Email Verification',
+      text: `Please click the following link to verify your email address: ${verificationLink}`,
+    };
+
+    // 5. Email details:
+    console.log("Email being sent:", email);
+
+    try {
+      await transporter.sendMail(email);
+      console.log('Verification email sent');
+      res.redirect('/register?message=verification'); // Redirect with success message
+    } catch (mailErr) {
+      console.log('Error sending mail:', mailErr);
+      res.redirect('/register?error=mail'); // Redirect with an error message
+    }
+
+  } catch (err) {
+    console.log(err);
+    // Check if error is because user already exists
+    if (err.name === 'UserExistsError') {
+      return res.redirect('/register?error=User%20already%20exists.%20Select%20Login.');
+    }
+    return res.redirect('/home');
   }
 });
 
@@ -384,29 +388,29 @@ app.get('/verify', function(req, res) {
   const verificationToken = req.query.token;
   
   // Find the user with the matching verification token
-  User.findOne({ verificationToken: verificationToken }, function(err, user) {
-    if (err) {
+  User.findOne({ verificationToken: verificationToken })
+    .then(user => {
+      if (!user) {
+        // Invalid or expired token
+        console.log('Invalid or expired token');
+        res.send('Unauthorized login');
+        res.redirect('/');
+      } else {
+        // Update the user's verification status
+        user.active = true;
+        user.verificationToken = null; // Clear the verification token
+        return user.save(); // Notice the 'return' here to chain the promise
+      }
+    })
+    .then(() => {
+      console.log('Email verified for user');
+      res.redirect('/login');
+    })
+    .catch(err => {
       console.log(err);
       res.send('Unauthorized login');
       res.redirect('/');
-    } else if (!user) {
-      // Invalid or expired token
-      res.send('Unauthorized login');
-      res.redirect('/');
-    } else {
-      // Update the user's verification status
-      user.active = true;
-      user.verificationToken = null; // Clear the verification token
-      user.save(function(err) {
-        if (err) {
-          console.log(err);
-        } else {
-          console.log('Email verified for user');
-        }
-        res.redirect('/login');
-      });
-    }
-  });
+    });
 });
 
 
@@ -467,19 +471,31 @@ app.post('/forgotpassword', function(req, res, next) {
 });
 
 
-app.get('/reset/:token', function(req, res) {
-  User.findOne({ resetPasswordToken: req.params.token, resetPasswordExpires: { $gt: Date.now() } }, function(err, user) {
+app.get('/reset/:token', async function(req, res) {
+  try {
+    const user = await User.findOne({ 
+      resetPasswordToken: req.params.token, 
+      resetPasswordExpires: { $gt: Date.now() } 
+    });
+
     if (!user) {
       // handle error: no user with this token, or token expired
       console.log('Password reset token is invalid or has expired.');
       return res.redirect('/forgotpassword?message=Password%20reset%20token%20is%20invalid%20or%20has%20expired');
     }
+
     // if user found, render a password reset form
     res.render('reset', {
       token: req.params.token
     });
-  });
+  } catch (err) {
+    console.error('Error in /reset/:token route:', err);
+    res.status(500).send('Internal server error');
+  }
 });
+
+
+
 
 
 app.post('/reset/:token', function(req, res) {
