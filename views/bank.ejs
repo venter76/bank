@@ -20,21 +20,30 @@
           <p class="lead">BRB - The best bank in Bray Road</p>
           <hr>
           <% if (error && error.length > 0) { %>
-            <div class="alert alert-danger error-message" role="alert">
+            <% if (error[0].includes('Successfully')) { %>
+              <div class="alert alert-success" role="alert">
                 <%= error[0] %>
-            </div>
+              </div>
+            <% } else { %>
+              <div class="alert alert-danger error-message" role="alert">
+                <%= error[0] %>
+              </div>
+            <% } %>
           <% } %>
-
+          
           <% if (money !== null) { %>
             <h2>You have R<%= parseFloat(money).toFixed(2) %> in your account.</h2>
           <% } else { %>
             <h2>Unable to display account balance.</h2>
           <% } %>
           
+          
           <br>
           <br>
           <a href="/logout" class="btn btn-danger">Logout</a> <!-- Logout button -->
-          <a href="/transact" class="btn btn-primary">Transact</a> <!-- Transact button -->
+          <a href="/transact" class="btn btn-primary">Banker admin</a> <!-- Transact button -->
+          <a href="/withdraw" class="btn btn-warning">Withdraw</a> <!-- Withdraw button -->
+
         </div>
     </div>
 </body>

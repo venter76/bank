@@ -634,6 +634,64 @@ app.post('/transact2', async (req, res) => {
 });
 
 
+
+app.get('/withdraw', ensureAuthenticated, (req, res) => {
+  res.render('withdraw', { firstname: req.user.firstname }); // Pass the user's firstname if needed
+});
+
+
+app.post('/withdraw', ensureAuthenticated, async (req, res) => {
+  const { amount } = req.body;
+  const withdrawalAmount = parseFloat(amount);
+
+  try {
+    // Find the user by ID
+    const user = await User.findById(req.user._id);
+
+    if (!user) {
+      return res.render('bank', {
+        money: null,
+        firstname: null,
+        error: ['User not found'],
+      });
+    }
+
+    // Ensure the user has enough money to withdraw
+    if (withdrawalAmount > user.money) {
+      return res.render('bank', {
+        money: user.money,
+        firstname: user.firstname,
+        error: ['Insufficient funds'],
+      });
+    }
+
+    // Subtract the withdrawal amount from the user's balance
+    user.money -= withdrawalAmount;
+
+    // Save the updated user balance
+    await user.save();
+
+    console.log(`User ${user.firstname} withdrew ${withdrawalAmount}. New balance: ${user.money}`);
+
+    // Render the bank page with success message
+    res.render('bank', {
+      money: user.money,
+      firstname: user.firstname,
+      error: [`Successfully withdrew R${withdrawalAmount}`], // Reusing error array for success
+    });
+  } catch (err) {
+    console.error('Error processing withdrawal:', err);
+    res.render('bank', {
+      money: null,
+      firstname: null,
+      error: ['An error occurred while processing the withdrawal'],
+    });
+  }
+});
+
+
+
+
 app.get('/logout', (req, res, next) => {
   // Log out the user and destroy the session
   req.logout((err) => {
