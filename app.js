@@ -67,11 +67,7 @@ const db_name = process.env.DB_NAME;
 const connectDB = async () => {
   try {
     const conn = await mongoose.connect(
-      `mongodb+srv://${db_username}:${db_password}@${db_cluster_url}/${db_name}?retryWrites=true&w=majority`, 
-      {
-        useNewUrlParser: true,
-        useUnifiedTopology: true,
-      }
+      `mongodb+srv://${db_username}:${db_password}@${db_cluster_url}/${db_name}?retryWrites=true&w=majority`
     );
 
     console.log('Connected to MongoDB Atlas:', conn.connection.host);
