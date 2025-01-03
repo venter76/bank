@@ -136,7 +136,7 @@ app.use(session({
     secure: process.env.NODE_ENV === 'production',
     sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
     httpOnly: true, // prevents JavaScript from making changes
-    maxAge: 24 * 60 * 60 * 1000 // 24 hours
+    maxAge: 14 * 24 * 60 * 60 * 1000, // 2 weeks in milliseconds
   }
 }));
 
@@ -595,25 +595,57 @@ app.post('/transact2', async (req, res) => {
       return res.status(404).send('User not found');
     }
 
-    // Calculate the new amount
+    // Parse debit and credit amounts
     const debitAmount = parseInt(debit, 10) || 0;
     const creditAmount = parseInt(credit, 10) || 0;
-    const newAmount = user.amount + debitAmount - creditAmount;
 
-    // Update the user's amount
-    user.amount = newAmount;
+    // Ensure the debit amount does not exceed the current balance
+    if (debitAmount > user.money) {
+      console.error(`Insufficient funds for debit. Current balance: ${user.money}`);
+      return res.status(400).render('bank', { 
+        money: user.money, 
+        firstname, 
+        error: ['Insufficient funds for debit.'] 
+      });
+    }
+
+    // Update the user's balance (money field)
+    user.money = user.money - debitAmount + creditAmount;
+
+    // Save the updated user
     await user.save();
 
-    console.log(`Debited: ${debitAmount}, Credited: ${creditAmount}, New Amount: ${newAmount}`);
+    console.log(`Debited: ${debitAmount}, Credited: ${creditAmount}, New Balance: ${user.money}`);
 
-    // Render the bank page with both money and amount
-    res.render('bank', { money: newAmount, amount: user.amount, firstname, error: [] });
+    // Render the bank page with updated balance
+    res.render('bank', { 
+      money: user.money, 
+      firstname, 
+      error: [] 
+    });
   } catch (err) {
     console.error(err);
-    res.status(500).render('bank', { money: null, amount: null, firstname: null, error: ['Internal Server Error'] });
+    res.status(500).render('bank', { 
+      money: null, 
+      firstname: null, 
+      error: ['Internal Server Error'] 
+    });
   }
 });
 
+
+app.get('/logout', (req, res, next) => {
+  // Log out the user and destroy the session
+  req.logout((err) => {
+    if (err) {
+      console.error('Error during logout:', err);
+      return next(err);
+    }
+
+    // Redirect the user to the login page or home page after logout
+    res.redirect('/login');
+  });
+});
 
 
 
