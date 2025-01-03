@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Bank page</title>
+    <title>Bank Page</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-9ndCyUaIbzAi2FUVXJi0CjmCapSmO7SnpJef0486qhLnuZ2cdeRhO02iuK6FUUVM" crossorigin="anonymous">
     <style>
         .error-message {
@@ -23,52 +23,19 @@
             <div class="alert alert-danger error-message" role="alert">
                 <%= error[0] %>
             </div>
-        <% } %>
+          <% } %>
+
+          <% if (money !== null) { %>
+            <h2>You have R<%= parseFloat(money).toFixed(2) %> in your account.</h2>
+          <% } else { %>
+            <h2>Unable to display account balance.</h2>
+          <% } %>
           
-          <h2> You have R<%= (parseFloat(money) + parseFloat(amount)).toFixed(2) %> in your account.</h2>
           <br>
           <br>
-          <a href="/logout" class="btn btn-danger">Logout</a> <!-- Add logout button with Bootstrap styling -->
-          <a href="/transact" class="btn btn-primary">Transact</a> <!-- Add transact button with Bootstrap styling -->
+          <a href="/logout" class="btn btn-danger">Logout</a> <!-- Logout button -->
+          <a href="/transact" class="btn btn-primary">Transact</a> <!-- Transact button -->
         </div>
     </div>
 </body>
 </html>
-
-
-
-
-
-
-
-
-
-
-
-
-
-<!-- <!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Bank page</title>
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-9ndCyUaIbzAi2FUVXJi0CjmCapSmO7SnpJef0486qhLnuZ2cdeRhO02iuK6FUUVM" crossorigin="anonymous">
-</head>
-<body>
-    
-    <div class="jumbotron">
-        <div class="container">
-          <i class="fas fa-key fa-6x"></i>
-          <h1 class="display-3"><%= firstname %>'s Pocket Money</h1>
-          <p class="lead">BRB - The best bank in Bray Road</p>
-          <hr>
-          <h2> You have R<%= (parseFloat(money) + parseFloat(amount)).toFixed(2) %> in your account.</h2>
-<br>
-<br>
-          <a href="/logout" class="btn btn-danger">Logout</a> <!-- Add logout button with Bootstrap styling -->
-          <!-- <a href="/transact" class="btn btn-primary">Transact</a> <!-- Add transact button with Bootstrap styling -->
-        <!-- </div>
-    </div>
-</body>
-</html> --> --> -->

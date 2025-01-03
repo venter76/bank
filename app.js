@@ -1,5 +1,5 @@
 
-require('dotenv').config(); ggggg
+require('dotenv').config(); 
 const express = require("express");
 const bodyParser = require("body-parser");
 const ensureAuthenticated = require('./authMiddleware'); 
@@ -17,6 +17,7 @@ const { v4: uuidv4 } = require('uuid');
 const crypto = require('crypto');
 const flash = require('connect-flash');
 const MongoStore = require('connect-mongo');
+const cron = require('node-cron');
 
 
 
@@ -65,15 +66,17 @@ const db_name = process.env.DB_NAME;
 
 const connectDB = async () => {
   try {
-    const conn = await mongoose.connect(`mongodb+srv://${db_username}:${db_password}@${db_cluster_url}/${db_name}?retryWrites=true&w=majority`, {
-      useNewUrlParser: true,
-      useUnifiedTopology: true,
-      useFindAndModify: false,
-    });
+    const conn = await mongoose.connect(
+      `mongodb+srv://${db_username}:${db_password}@${db_cluster_url}/${db_name}?retryWrites=true&w=majority`, 
+      {
+        useNewUrlParser: true,
+        useUnifiedTopology: true,
+      }
+    );
 
     console.log('Connected to MongoDB Atlas:', conn.connection.host);
   } catch (error) {
-    console.error('Error connecting to MongoDB Atlas:', error);
+    console.error('Error connecting to MongoDB Atlas:', error.message);
     process.exit(1);
   }
 };
@@ -81,36 +84,33 @@ const connectDB = async () => {
 
 
 
+
 const userSchema = new mongoose.Schema({
   email: String,
-  password: String,
-  verificationToken: String, // New field for verification token
+  password: String, // Stored as a hash using passport-local-mongoose
+  verificationToken: String, // Field for email verification token
+  resetPasswordToken: String, // Field for password reset token
+  resetPasswordExpires: Date, // Expiry time for password reset token
+  firstname: String, // User's first name
+  surname: String, // User's surname
+  dob: Date, // Date of birth
   money: {
     type: Number,
-    default: 100
+    default: 100, // Initial account balance
   },
-  resetPasswordToken: String, // Field for password reset token
-  resetPasswordExpires: Date, // Field for token expiration time
-  firstname: String,
-  surname: String,
-  dob: Date,
+  lastUpdated: {
+    type: Date,
+    default: Date.now, // Tracks when the balance was last updated
+  },
   date: {
     type: Date,
-    default: Date.now
-  },
-  amount: {
-    type: Number,
-    default: 0,
+    default: Date.now, // User's account creation date
   },
   role: {
     type: String,
-    default: "user" 
+    default: "user", // Role of the user (e.g., "user", "admin")
   },
-  newamount: Number
 });
-
-
-
 
 userSchema.plugin(passportLocalMongoose);
 userSchema.plugin(findOrCreate);
@@ -154,11 +154,15 @@ passport.serializeUser(function(user, done) {
   done(null, user.id);
 });
 
-passport.deserializeUser(function(id, done) {
-  User.findById(id, function(err, user) {
-    done(err, user);
-  });
+passport.deserializeUser(async function(id, done) {
+  try {
+    const user = await User.findById(id); // User is your Mongoose model
+    done(null, user);
+  } catch (err) {
+    done(err, null);
+  }
 });
+
 
 
 
@@ -179,23 +183,53 @@ const algorithm = process.env.ALGORITHM;
 let encryptionKey;
 let iv;
 
-if (!process.env.ENCRYPTION_KEY || !process.env.IV) {
-  encryptionKey = crypto.randomBytes(32).toString('hex');
-  iv = crypto.randomBytes(16).toString('hex');
-
-  // Log the values, so you can manually set them as environment variables later
-  // console.log('ENCRYPTION_KEY:', encryptionKey);
-  // console.log('IV:', iv);
-
-  
-} else {
+// Load encryptionKey and iv from environment variables
+if (process.env.ENCRYPTION_KEY && process.env.IV) {
   encryptionKey = Buffer.from(process.env.ENCRYPTION_KEY, 'hex');
   iv = Buffer.from(process.env.IV, 'hex');
+} else {
+  console.error('Encryption key and IV must be set as environment variables.');
+  process.exit(1); // Exit the process if these variables are not set
 }
 
 //End of encryption code.
 
 
+// Job to update user balances every 2 minutes
+cron.schedule('*/2 * * * *', async () => { 
+  try {
+    console.log('Running 2-minute balance update...');
+
+    const incrementAmount = 120; // Increment amount per 2 minutes
+    const now = new Date();
+
+    // Find all users
+    const users = await User.find({});
+
+    for (const user of users) {
+      // Calculate the number of 2-minute intervals since the last update
+      const diffMs = now - user.lastUpdated;
+      const diffIntervals = Math.floor(diffMs / (1000 * 60 * 2)); // 2 minutes per interval
+
+      if (diffIntervals > 0) {
+        // Update the balance
+        user.money += diffIntervals * incrementAmount;
+
+        // Update the lastUpdated field
+        user.lastUpdated = now;
+
+        // Save the updated user
+        await user.save();
+
+        console.log(`Updated balance for user ${user.firstname}: ${user.money}`);
+      }
+    }
+
+    console.log('2-minute balance update complete.');
+  } catch (err) {
+    console.error('Error running 2-minute balance update:', err);
+  }
+});
 
 
 
@@ -243,7 +277,7 @@ app.post("/login", function(req, res, next) {
       }
 
       // If it's not the user's first login, redirect to their main page.
-      return res.redirect("/home2");
+      return res.redirect("/bank");
     });   
   })(req, res, next);
 });
@@ -258,100 +292,77 @@ app.get("/welcome", function(req, res){
 });
 
 
-app.post('/welcome', (req, res) => {
-  // Log req.session and req.user
-  // console.log('req.session:', req.session);
-  // console.log('req.user:', req.user);
-
+app.post('/welcome', async (req, res) => {
   const { firstName, surname, dob } = req.body;
 
   if (!req.user) {
-    res.status(400).send("You must be logged in to access this route.");
+    res.status(400).send('You must be logged in to access this route.');
     return;
   }
 
-  const userId = req.user._id;
+  try {
+    const userId = req.user._id;
 
-  const dobString = dob.toString();
+    // Encrypt firstName
+    const firstNameCipher = crypto.createCipheriv(algorithm, encryptionKey, iv);
+    let encryptedFirstName = firstNameCipher.update(firstName, 'utf8', 'hex');
+    encryptedFirstName += firstNameCipher.final('hex');
 
-  // Encrypt the 'firstName' value
-  const firstNameCipher = crypto.createCipheriv(algorithm, encryptionKey, iv);
-  let encryptedFirstName = firstNameCipher.update(firstName, 'utf8', 'hex');
-  encryptedFirstName += firstNameCipher.final('hex');
+    // Encrypt surname
+    const surnameCipher = crypto.createCipheriv(algorithm, encryptionKey, iv);
+    let encryptedSurname = surnameCipher.update(surname, 'utf8', 'hex');
+    encryptedSurname += surnameCipher.final('hex');
 
-  // Encrypt the 'surname' value
-  const surnameCipher = crypto.createCipheriv(algorithm, encryptionKey, iv);
-  let encryptedSurname = surnameCipher.update(surname, 'utf8', 'hex');
-  encryptedSurname += surnameCipher.final('hex');
+    // Encrypt dob
+    const dobCipher = crypto.createCipheriv(algorithm, encryptionKey, iv);
+    let encryptedDob = dobCipher.update(dob, 'utf8', 'hex');
+    encryptedDob += dobCipher.final('hex');
 
-  // Encrypt the 'dob' value
-  const dobCipher = crypto.createCipheriv(algorithm, encryptionKey, iv);
-  let encryptedDob = dobCipher.update(dob, 'utf8', 'hex');
-  encryptedDob += dobCipher.final('hex');
+    // Decrypt dob to ensure it's stored as a valid Date
+    const decipher = crypto.createDecipheriv(algorithm, encryptionKey, iv);
+    let decryptedDob = decipher.update(encryptedDob, 'hex', 'utf8');
+    decryptedDob += decipher.final('utf8');
 
-  // Decrypt the 'dob' value back into a date
-  const decipher = crypto.createDecipheriv(algorithm, encryptionKey, iv);
-  let decryptedDob = decipher.update(encryptedDob, 'hex', 'utf8');
-  decryptedDob += decipher.final('utf8');
+    // Update user in the database
+    const updatedUser = await User.findByIdAndUpdate(
+      userId,
+      {
+        firstname: encryptedFirstName,
+        surname: encryptedSurname,
+        dob: new Date(decryptedDob), // Convert decrypted dob to Date object
+      },
+      { new: true }
+    );
 
-  User.findByIdAndUpdate(
-    userId,
-    {
-      firstname: encryptedFirstName,
-      surname: encryptedSurname,
-      dob: new Date(decryptedDob),
-    },
-    { new: true },
-    (err, user) => {
-      if (err) {
-        console.error(err);
-        res.status(500).send("An error occurred while updating user information.");
-        return;
-      }
-
-      // User information has been updated successfully
-      // Redirect or render the next page here
-      res.redirect('bank');
+    if (!updatedUser) {
+      throw new Error('User not found');
     }
-  );
+
+    res.redirect('/bank');
+  } catch (err) {
+    console.error('Error in /welcome route:', err);
+    res.status(500).send('An error occurred while updating user information.');
+  }
 });
 
-
-app.get('/register', function(req, res) {
+app.get('/register', (req, res) => {
   const errorMessage = req.query.error;
   res.render('register', { message: req.query.message, error: errorMessage });
 });
 
-
-app.post('/register', async function(req, res) {
-
-  // Check if passwords match
+app.post('/register', async (req, res) => {
   if (req.body.password !== req.body.passwordConfirm) {
-    // Handle error: passwords do not match
     console.log('Passwords do not match');
-    return res.redirect('/register'); // Use 'return' to exit the function immediately
+    return res.redirect('/register');
   }
 
   try {
     const user = await User.register({ username: req.body.username, active: false }, req.body.password);
 
-// 2. After user registration:
-console.log("User registered:", user);
-
-
-    // Generate a verification token
     const verificationToken = uuidv4();
     user.verificationToken = verificationToken;
-
-// 3. Before saving user with token:
-console.log("User with verification token:", user);
-
     await user.save();
 
-    // 4. After user has been saved:
-    console.log("User saved to DB:", user);
-
-    // Send verification email
     const verificationLink = `${process.env.APP_URL}/verify?token=${verificationToken}`;
 
     const email = {
@@ -361,365 +372,256 @@ console.log("User with verification token:", user);
       text: `Please click the following link to verify your email address: ${verificationLink}`,
     };
 
-    // 5. Email details:
-    console.log("Email being sent:", email);
-
-    try {
-      await transporter.sendMail(email);
-      console.log('Verification email sent');
-      res.redirect('/register?message=verification'); // Redirect with success message
-    } catch (mailErr) {
-      console.log('Error sending mail:', mailErr);
-      res.redirect('/register?error=mail'); // Redirect with an error message
-    }
-
+    await transporter.sendMail(email);
+    console.log('Verification email sent');
+    res.redirect('/register?message=verification');
   } catch (err) {
-    console.log(err);
-    // Check if error is because user already exists
+    console.error(err);
     if (err.name === 'UserExistsError') {
       return res.redirect('/register?error=User%20already%20exists.%20Select%20Login.');
     }
-    return res.redirect('/home');
+    res.redirect('/home');
   }
 });
 
-
-app.get('/verify', function(req, res) {
+app.get('/verify', async (req, res) => {
   const verificationToken = req.query.token;
-  
-  // Find the user with the matching verification token
-  User.findOne({ verificationToken: verificationToken })
-    .then(user => {
-      if (!user) {
-        // Invalid or expired token
-        console.log('Invalid or expired token');
-        res.send('Unauthorized login');
-        res.redirect('/');
-      } else {
-        // Update the user's verification status
-        user.active = true;
-        user.verificationToken = null; // Clear the verification token
-        return user.save(); // Notice the 'return' here to chain the promise
-      }
-    })
-    .then(() => {
-      console.log('Email verified for user');
-      res.redirect('/login');
-    })
-    .catch(err => {
-      console.log(err);
-      res.send('Unauthorized login');
-      res.redirect('/');
-    });
+
+  try {
+    const user = await User.findOne({ verificationToken });
+    if (!user) {
+      console.log('Invalid or expired token');
+      return res.redirect('/');
+    }
+
+    user.active = true;
+    user.verificationToken = null;
+    await user.save();
+
+    console.log('Email verified for user');
+    res.redirect('/login');
+  } catch (err) {
+    console.error(err);
+    res.redirect('/');
+  }
 });
-
-
 
 app.get('/forgotpassword', function(req, res) {
-  let message = req.query.message;  // Extract message from the URL parameters.
-  res.render('forgotpassword', { message: message });  // Pass message to the view.
+  const message = req.query.message; // Extract message from the URL parameters
+  res.render('forgotpassword', { message: message }); // Pass the message to the view
 });
 
 
-
-app.post('/forgotpassword', function(req, res, next) {
-  crypto.randomBytes(20, function(err, buf) {
-    const token = buf.toString('hex');
-
-    User.findOne({ username: req.body.username }, function(err, user) {
-      if (!user) {
-        // handle error: no user with this email
-        console.log('No user with this email address');
-        res.send("No user registered with this email address");
-        res.redirect('/forgotpassword');
-      }
-      
-
-      user.resetPasswordToken = token;
-      user.resetPasswordExpires = Date.now() + 10800000; // 1 hour
-      console.log(new Date(user.resetPasswordExpires));
-
-      user.save(function(err) {
-        if(err) {
-          console.log(err);
-          // handle error
-          return res.redirect('/forgotpassword');
-        }
-
-        const mailOptions = {
-          to: user.username,
-          from: 'brayroadapps@gmail.com',
-          subject: 'Node.js Password Reset',
-          text: 'You are receiving this because you (or someone else) have requested the reset of the password for your account.\n\n' +
-            'Please click on the following link, or paste this into your browser to complete the process:\n\n' +
-            'http://' + req.headers.host + '/reset/' + token + '\n\n' +
-            'If you did not request this, please ignore this email and your password will remain unchanged.\n'
-        };
-
-        transporter.sendMail(mailOptions, function(error, info){
-          if (error) {
-            console.log(error);
-            return res.redirect('/forgotpassword');
-          } else {
-            console.log('Email sent: ' + info.response);
-            return res.redirect('/forgotpassword?message=Email%20has%20been%20sent%20with%20further%20instructions');
-          }
-        });
-      });
-    });
-  });
-});
-
-
-app.get('/reset/:token', async function(req, res) {
+app.post('/forgotpassword', async (req, res) => {
   try {
-    const user = await User.findOne({ 
-      resetPasswordToken: req.params.token, 
-      resetPasswordExpires: { $gt: Date.now() } 
+    const token = crypto.randomBytes(20).toString('hex');
+    const user = await User.findOne({ username: req.body.username });
+
+    if (!user) {
+      console.log('No user with this email address');
+      return res.redirect('/forgotpassword');
+    }
+
+    user.resetPasswordToken = token;
+    user.resetPasswordExpires = Date.now() + 10800000;
+    await user.save();
+
+    const mailOptions = {
+      to: user.username,
+      from: 'brayroadapps@gmail.com',
+      subject: 'Node.js Password Reset',
+      text: `You are receiving this because you (or someone else) have requested the reset of the password for your account.\n\n` +
+        `Please click on the following link, or paste this into your browser to complete the process:\n\n` +
+        `http://${req.headers.host}/reset/${token}\n\n` +
+        `If you did not request this, please ignore this email and your password will remain unchanged.\n`,
+    };
+
+    await transporter.sendMail(mailOptions);
+    res.redirect('/forgotpassword?message=Email%20has%20been%20sent%20with%20further%20instructions');
+  } catch (err) {
+    console.error(err);
+    res.redirect('/forgotpassword');
+  }
+});
+
+app.get('/reset/:token', async (req, res) => {
+  try {
+    const user = await User.findOne({
+      resetPasswordToken: req.params.token,
+      resetPasswordExpires: { $gt: Date.now() },
     });
 
     if (!user) {
-      // handle error: no user with this token, or token expired
       console.log('Password reset token is invalid or has expired.');
       return res.redirect('/forgotpassword?message=Password%20reset%20token%20is%20invalid%20or%20has%20expired');
     }
 
-    // if user found, render a password reset form
-    res.render('reset', {
-      token: req.params.token
-    });
+    res.render('reset', { token: req.params.token });
   } catch (err) {
-    console.error('Error in /reset/:token route:', err);
+    console.error(err);
     res.status(500).send('Internal server error');
   }
 });
 
+app.post('/reset/:token', async (req, res) => {
+  try {
+    const user = await User.findOne({
+      resetPasswordToken: req.params.token,
+      resetPasswordExpires: { $gt: Date.now() },
+    });
 
-
-
-
-app.post('/reset/:token', function(req, res) {
-  User.findOne({ resetPasswordToken: req.params.token, resetPasswordExpires: { $gt: Date.now() } }, function(err, user) {
     if (!user) {
       console.log('Password reset token is invalid or has expired.');
       return res.redirect('/forgotpassword?message=Password%20reset%20token%20is%20invalid%20or%20has%20expired');
     }
 
-    // Check if passwords match
     if (req.body.password !== req.body.passwordConfirm) {
-      // Handle error: passwords do not match
       console.log('Passwords do not match');
       return res.redirect('/forgotpassword?message=Passwords%20do%20not%20match');
-    } 
+    }
 
-    user.setPassword(req.body.password, function(err) {
-      if(err) {
-        console.log(err);
+    user.setPassword(req.body.password, async (err) => {
+      if (err) {
+        console.error(err);
         return res.redirect('/forgotpassword');
       }
-      
+
       user.resetPasswordToken = undefined;
       user.resetPasswordExpires = undefined;
+      await user.save();
 
-      user.save(function(err) {
-        if(err) {
-          console.log(err);
+      req.logIn(user, (err) => {
+        if (err) {
+          console.error(err);
           return res.redirect('/forgotpassword');
         }
-        // Log the user in and redirect them somewhere
-        req.logIn(user, function(err) {
-          res.redirect('/');
-        });
+
+        res.redirect('/');
       });
     });
-  });
-});
-
-
-
-
-//Banking routes code:
-
-
-app.get('/bank', ensureAuthenticated, function(req, res) {
-  User.findById(req.user._id, function(err, user) {
-    if (err) {
-      console.log(err);
-      // Handle the error accordingly
-    } else {
-      // Get the current date
-      const now = new Date();
-
-      // Calculate the difference in milliseconds
-      const diffMs = now - user.date;
-
-      // Convert to hours
-      const diffHrs = diffMs / (1000 * 60 * 60);
-
-      // Calculate the new amount
-      // Calculate the new amount
-      const newAmount = (user.money + (0.6 * diffHrs)).toFixed(2);
-      
-      // Update newamount field in user document
-User.findByIdAndUpdate(req.user._id, { newamount: newAmount }, function(err, user) {
-  if (err) {
-    console.log(err);
-    // Handle the error accordingly
-  } else {
-    // Success, do nothing
-    console.log('User newamount updated successfully');
-
- 
+  } catch (err) {
+    console.error(err);
+    res.redirect('/forgotpassword');
   }
 });
 
 
-      
+app.get('/bank', ensureAuthenticated, async function (req, res) {
+  try {
+    // Find the user by ID
+    const user = await User.findById(req.user._id);
 
-// Decrypt the 'firstname' value using the existing 'crypto' setup
-const decipher = crypto.createDecipheriv(algorithm, encryptionKey, iv);
+    if (!user) {
+      req.flash('error', 'User not found');
+      return res.redirect('/login');
+    }
 
-
-       // Decrypt the 'firstname' value
+    // Decrypt the 'firstname' value
+    const decipher = crypto.createDecipheriv(algorithm, encryptionKey, iv);
     let decryptedFirstname = decipher.update(user.firstname, 'hex', 'utf8');
     decryptedFirstname += decipher.final('utf8');
 
-      res.render('bank', { money: newAmount,  amount: user.amount, firstname: decryptedFirstname, error: req.flash('error')});
-    
-    }
-  });
+    // Render the bank page
+    res.render('bank', { 
+      money: user.money, // Current balance from the database
+      firstname: decryptedFirstname, // Decrypted firstname
+      error: req.flash('error') // Error messages, if any
+    });
+  } catch (err) {
+    console.error('Error in /bank route:', err);
+    req.flash('error', 'An error occurred');
+    res.redirect('/login');
+  }
 });
 
 
+app.get('/transact', ensureAuthenticated, ensureAdmin, async (req, res) => {
+  try {
+    // Query the database to get all users
+    const users = await User.find({});
 
-app.get('/transact', ensureAuthenticated, ensureAdmin, function(req, res)  {
+    // Decrypt the firstnames of the users
+    const decryptedFirstnames = users.map(user => {
+      try {
+        const decipher = crypto.createDecipheriv(algorithm, encryptionKey, iv);
+        let decrypted = decipher.update(user.firstname, 'hex', 'utf8');
+        decrypted += decipher.final('utf8');
+        return decrypted;
+      } catch (err) {
+        console.error(`Error decrypting firstname for user ${user._id}:`, err);
+        return "Unknown"; // Fallback in case decryption fails
+      }
+    });
 
-// Decrypt function
-function decrypt(text){
-  let decipher = crypto.createDecipheriv('aes-256-cbc', Buffer.from(process.env.ENCRYPTION_KEY, 'hex'), Buffer.from(process.env.IV, 'hex'));
-  let decrypted = decipher.update(text, 'hex', 'utf8');
-  decrypted += decipher.final('utf8');
-  return decrypted;
-}
-
-
-  // Query the database to get all users
-  User.find({}, (err, users) => {
-    if (err) {
-      console.log(err);
-      res.status(500).send("Error occurred while fetching users");
-    } else {
-
-       // Filter out users without a firstname
-    const usersWithFirstnames = users.filter(user => user.firstname);
-
-
-    
-// Decrypt the firstnames
-const firstnames = usersWithFirstnames.map(user => decrypt(user.firstname));
-const newamounts = usersWithFirstnames.map(user => user.newamount);
-
-      
-      
-      // Render the transact view with the firstnames
-      res.render('transact', { firstnames, newamounts });
-
-    }
-  });
+    // Render the transact view with the decrypted firstnames
+    res.render('transact', { firstnames: decryptedFirstnames });
+  } catch (err) {
+    console.error(err);
+    res.status(500).send("Error occurred while fetching users");
+  }
 });
+
 
 
 app.get('/transact/:firstname', ensureAuthenticated, ensureAdmin, (req, res) => {
   // The selected firstname is available as req.params.firstname
   const selectedFirstname = req.params.firstname;
-  console.log(selectedFirstname);
-
- 
+  console.log('Selected firstname for transact2:', selectedFirstname);
+  // Render the transact2 view with the selected firstname
   res.render('transact2', { firstname: selectedFirstname });
 });
 
 
-app.post('/transact2', ensureAuthenticated, ensureAdmin, (req, res) => {
+
+
+app.post('/transact2', async (req, res) => {
   const { debit, credit, firstname } = req.body;
-  console.log(firstname);
 
-  // Encrypt the firstname
-  const firstname2Cipher = crypto.createCipheriv(algorithm, encryptionKey, iv);
-  let encrypteddFirstname = firstname2Cipher.update(firstname, 'utf8', 'hex');
-  encrypteddFirstname += firstname2Cipher.final('hex');
+  try {
+    console.log('Received firstname in POST /transact2:', firstname);
 
-  
+    // Encrypt the firstname to match the stored value in the database
+    const firstnameCipher = crypto.createCipheriv(algorithm, encryptionKey, iv);
+    let encryptedFirstname = firstnameCipher.update(firstname, 'utf8', 'hex');
+    encryptedFirstname += firstnameCipher.final('hex');
 
+    console.log('Encrypted firstname for query:', encryptedFirstname);
 
-  console.log(encrypteddFirstname);
-
-  // Convert the debit and credit amounts to numbers
-  const debitAmount = parseInt(debit) || 0;
-  const creditAmount = parseInt(credit) || 0;
-
-  // Find the user by firstname
-  User.findOne({ firstname: encrypteddFirstname }, (err, user) => {
-    if (err) {
-      // Handle the error
-      return res.status(500).send('Internal Server Error');
-    }
+    // Find the user by the encrypted firstname
+    const user = await User.findOne({ firstname: encryptedFirstname });
 
     if (!user) {
-      // Handle the case if the user is not found
+      console.error('User not found for firstname:', encryptedFirstname);
       return res.status(404).send('User not found');
     }
 
-     // Update the amount based on the debit and credit amounts
-     user.amount = user.amount + debitAmount - creditAmount;
+    // Calculate the new amount
+    const debitAmount = parseInt(debit, 10) || 0;
+    const creditAmount = parseInt(credit, 10) || 0;
+    const newAmount = user.amount + debitAmount - creditAmount;
 
-   // Save the updated user object
-   user.save((err) => {
-    if (err) {
-      // Handle the error
-      return res.status(500).send('Internal Server Error');
-    }
+    // Update the user's amount
+    user.amount = newAmount;
+    await user.save();
 
-    // If successful, redirect or render as needed
-    res.redirect('/logout'); // or res.render(), depending on your need
-  });
+    console.log(`Debited: ${debitAmount}, Credited: ${creditAmount}, New Amount: ${newAmount}`);
+
+    // Render the bank page with both money and amount
+    res.render('bank', { money: newAmount, amount: user.amount, firstname, error: [] });
+  } catch (err) {
+    console.error(err);
+    res.status(500).render('bank', { money: null, amount: null, firstname: null, error: ['Internal Server Error'] });
+  }
 });
-});
 
 
 
-
-app.get('/logout', ensureAuthenticated, function(req, res) {
-  User.findById(req.user._id, function(err, user) {
-    if (err) {
-      console.log(err);
-      // Handle the error accordingly
-    } else {
-     // Decrypt the 'firstname' value using the existing 'crypto' setup
-          const decipher = crypto.createDecipheriv(algorithm, encryptionKey, iv);
-
-
-      // Decrypt the 'firstname' value
-        let decryptedFirstname = decipher.update(user.firstname, 'hex', 'utf8');
-        decryptedFirstname += decipher.final('utf8');
-
-
-      res.render('logout', { firstname: decryptedFirstname});
-    }
-  });
-});
 
 
 
 
 connectDB().then(() => {
   app.listen(PORT, () => {
-      console.log("listening for requests");
-  })
-})
-
-
-
-
-
-
-//END
+    console.log("listening for requests");
+  });
+});
