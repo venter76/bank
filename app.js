@@ -512,14 +512,35 @@ app.get('/bank', ensureAuthenticated, async function (req, res) {
       return res.redirect('/login');
     }
 
+    // Calculate the balance update
+    const incrementAmount = 120; // Increment amount per 2 minutes
+    const now = new Date();
+
+    // Calculate the number of 2-minute intervals since the last update
+    const diffMs = now - user.lastUpdated;
+    const diffIntervals = Math.floor(diffMs / (1000 * 60 * 2)); // 2 minutes per interval
+
+    if (diffIntervals > 0) {
+      // Update the balance
+      user.money += diffIntervals * incrementAmount;
+
+      // Update the lastUpdated field
+      user.lastUpdated = now;
+
+      // Save the updated user
+      await user.save();
+
+      console.log(`Updated balance for user ${user.firstname}: ${user.money}`);
+    }
+
     // Decrypt the 'firstname' value
     const decipher = crypto.createDecipheriv(algorithm, encryptionKey, iv);
     let decryptedFirstname = decipher.update(user.firstname, 'hex', 'utf8');
     decryptedFirstname += decipher.final('utf8');
 
-    // Render the bank page
+    // Render the bank page with the updated balance
     res.render('bank', { 
-      money: user.money, // Current balance from the database
+      money: user.money, // Updated balance
       firstname: decryptedFirstname, // Decrypted firstname
       error: req.flash('error') // Error messages, if any
     });
@@ -529,6 +550,7 @@ app.get('/bank', ensureAuthenticated, async function (req, res) {
     res.redirect('/login');
   }
 });
+
 
 
 app.get('/transact', ensureAuthenticated, ensureAdmin, async (req, res) => {
